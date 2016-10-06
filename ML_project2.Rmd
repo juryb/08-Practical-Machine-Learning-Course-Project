@@ -1,0 +1,135 @@
+---
+title: "08-Practical-Machine-Learning-Course-Project"
+author: "J.Balanov"
+date: "03.10.2016"
+output: html_document
+---
+
+# Introduction
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement—a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+```{r, message=FALSE,warning=FALSE}
+setwd("~/08-Practical-Machine-Learning-Course-Project")
+library (caret)
+library(rpart)
+library(randomForest)
+library(kernlab)
+library(MASS)
+```
+
+
+#Read Data
+
+```{r}
+dataTrainRAW <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!",""))
+dataTestRAW <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!",""))
+```
+
+#Clean Data
+Remove columns full of NAs, variables with nearly zero variance and variables that don't make intuitive sense for prediction
+
+```{r}
+# Remove columns full of NAs.
+ccc <- colSums(is.na(dataTrainRAW))==0
+dataTrain <-dataTrainRAW[,ccc]
+dataTest <-dataTestRAW[,ccc]
+
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(dataTrain, saveMetrics = TRUE)
+dataTrain <- dataTrain[, -nzv$nzv]
+dataTest <- dataTest[, -nzv$nzv]
+
+#remove variables that don't make intuitive sense for prediction
+dataTrain <-dataTrain[, -c(1:6)]
+dataTest <-dataTest[, -c(1:6)]
+
+#remove problem_id from Test set
+dataTest <- dataTest[,1:52]
+```
+
+#Split data 
+Split the cleaned training set into a pure training data set (70%)  and a validation data set (30%).
+We will use the validation data set to conduct cross validation in future steps
+
+```{r}
+set.seed(12345)
+inTrain <- createDataPartition(y=dataTrain$classe, p=0.7, list=FALSE) 
+training <- dataTrain[inTrain, ]
+validation <- dataTrain[-inTrain, ]
+```
+
+
+#Build models and model selection
+train the model by using all remaining variables in the data set.
+
+```{r}
+
+# instruct train to use 3-fold CV to select optimal tuning parameters
+fitControl <- trainControl(method="cv", number=3, verboseIter=FALSE)
+
+#CART - classification and regression trees
+CART.fit <- train(classe ~ ., data=training, method="rpart", trControl=fitControl)
+
+#Random Forest
+RF.fit <- train(classe ~ ., method="rf", data=training, trControl=fitControl)
+
+#LDA - Linear Discriminant Analysis Model
+LDA.fit <- train(classe ~ ., data=training, method="lda", trControl=fitControl)
+
+#kNN - k-nearest neighbors 
+KNN.fit <- train(classe ~ ., data=training, method="knn", trControl=fitControl)
+
+#SVM with RBF - support vector machine with radial basis function 
+SVM.fit <- train(classe ~ ., data=training, method="svmRadial", trControl=fitControl)
+
+# collect resamples
+results <- resamples(list(CART=CART.fit, LDA=LDA.fit, SVM=SVM.fit, KNN=KNN.fit, RF=RF.fit))
+
+# summarize differences between models
+summary(results)
+
+```
+
+
+the Random Forest method  has higher accuracy and kappa (Median and Maximum)
+
+
+```{r}
+RF.fit$finalModel
+```
+
+I see that it decided to use 500 trees and try 2 variables at each split.
+
+
+```{r}
+# use model to predict classe in validation set
+predict <- predict(RF.fit, newdata=validation)
+
+# show confusion matrix to get estimate of out-of-sample error
+confusionMatrix(validation$classe, predict)
+```
+
+the estimated accuracy of the model is 98.93% and the estimated out-of-sample error is 1,07%.
+
+
+#Predicting for Test Data Set
+apply the model to the original testing data set downloaded from the data source
+
+```{r}
+#predict in original Testing data
+result <- predict(RF.fit, newdata=dataTest)
+result
+```
+
+
+
